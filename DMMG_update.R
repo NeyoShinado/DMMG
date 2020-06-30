@@ -35,17 +35,9 @@ var_update <- function(lg_X, K, npc, S, neighbors, guide_cluster, gt, mu_g, sd_g
   meandrop = apply(droprate, 2, mean)   # 0 - 0.9  gene meandrop
   meangene = apply(lg_X, 2, mean)
   
-  # fea separation
-  meandrop_id = order(meandrop, decreasing=FALSE)
-  dropmean = cbind(meandrop, meangene)
-  v = svd(dropmean)$v
-  gene_group = dropmean %*% v[, 1]
-  
-  # locate center
-  gene_class = kmeans(gene_group, centers=sample(gene_group[meandrop_id[1:100]], K), nstart = 20, iter.max = 1000)$cluster
-  
   
   if(FALSE){
+    # clust meandrop plot
   meandrop = apply(droprate, 1, mean)
   meangene = apply(lg_X, 1, mean)
   id = order(meandrop, decreasing=TRUE)
@@ -73,44 +65,66 @@ var_update <- function(lg_X, K, npc, S, neighbors, guide_cluster, gt, mu_g, sd_g
     return(i)
   })
   }
+  
+  if(FALSE){
+    # fea separation
+    meandrop_id = order(meandrop, decreasing=FALSE)
+    dropmean = cbind(meandrop, meangene)
+    v = svd(dropmean)$v
+    gene_group = dropmean %*% v[, 1]
+    
+    # locate center
+    gene_class = kmeans(gene_group, centers=sample(gene_group[meandrop_id[1:100]], K), nstart = 20, iter.max = 1000)$cluster
+    
+    # data devide via drop-mean gene
+    map = unique(gene_class)
+    view_id = lapply(1:length(map), function(i){
+      id = which(gene_class == map[i])
+      if(length(id) < K){
+        
+      }else{
+        return(id)
+      }
+    })
+    view_id = view_id[sapply(view_id, function(i){all(!is.null(i))})]
+    
+    meandrop = sapply(view_id, function(i){
+      res = sum(meandrop[i]) / length(i)
+      return(res)
+    })  
+      
+    split_data = lapply(view_id, function(i){
+      res = imp_X[, i]  #####
+      return(res)
+    })
+    
+    #* 12\weighted cell
+    Dc = rowSums(droprate)
+    Dg = colSums(droprate)
+    Dg = lapply(view_id, function(i){
+      res = Dg[i]
+      return(res)
+    })
+    Dc = Matrix(diag(exp(-sigmac * Dc / P)), sparse=TRUE)
+    Dg = lapply(1:length(view_id), function(i){
+      Matrix(diag(exp(-2 * meandrop[i] * Dg[[i]] / N)), sparse=TRUE)    # scale factor 2 for small dataset and 3 for the big one
+    })
+}
     
   
-  # divide gene
-  #####
-  map = unique(gene_class)
-  view_id = lapply(1:length(map), function(i){
-    id = which(gene_class == map[i])
-    if(length(id) < K){
-      
-    }else{
-      return(id)
-    }
-  })
-  view_id = view_id[sapply(view_id, function(i){all(!is.null(i))})]
-  
+  # devide gene
+  #* 8\ log_X or imp_X
+  res = multiview_generation(lg_X, droprate, guide_cluster, sigmac, sigmag)
+  split_data = res$split_data
+  Dc = res$Dc
+  Dg = res$Dg
+  view_id = res$view_id
+
   meandrop = sapply(view_id, function(i){
     res = sum(meandrop[i]) / length(i)
     return(res)
-  })
-  
-  #* 8\ log_X or imp_X
-  split_data = lapply(view_id, function(i){
-    res = droprate[, i]  
-    return(res)
-  })
-  
-  
-  #* 12\weighted cell
-  Dc = rowSums(droprate)
-  Dg = colSums(droprate)
-  Dg = lapply(view_id, function(i){
-    res = Dg[i]
-    return(res)
-  })
-  Dc = Matrix(diag(exp(-sigmac * Dc / P)), sparse=TRUE)
-  Dg = lapply(1:length(view_id), function(i){
-    Matrix(diag(exp(-2 * meandrop[i] * Dg[[i]] / N)), sparse=TRUE)    # scale factor 2 for small dataset and 3 for the big one
-  })
+  })  
+
   
   # init vars
   set.seed(rep)   #*15\ produce reproductive result
@@ -118,52 +132,65 @@ var_update <- function(lg_X, K, npc, S, neighbors, guide_cluster, gt, mu_g, sd_g
   H = eigen(diag(colSums(S)) - S)$vector
   H = H[, (N-K):(N-1)]
   H[H<=0] = 1e-10
-  W = matrix(runif(N * npc), N, npc)
-  Wv = lapply(1:length(view_id), function(i){
-    pi = dim(split_data[[i]])[2]
-    Wi = matrix(runif(N * npc), N, npc)
-    return(Wi)
-  })
-  V = lapply(1:length(view_id), function(i){
-    pi = dim(split_data[[i]])[2]
-    Vi = matrix(runif(npc * pi), npc, pi)
-    return(Vi)
-  })
   
-
+  NN = N
+  norm = rowSums(S)
+  norm = matrix(norm, N, N)
+  S = S / (norm + 1e-10)
+  S = (S + t(S)) / 2
+  #S = S - diag(diag(S)) + diag(1, N)
+  
+  if(FALSE){
+    W = matrix(runif(N * npc), N, npc)
+    Wv = lapply(1:length(view_id), function(i){
+      pi = dim(split_data[[i]])[2]
+      Wi = matrix(runif(N * npc), N, npc)
+      return(Wi)
+    })
+    V = lapply(1:length(view_id), function(i){
+      pi = dim(split_data[[i]])[2]
+      Vi = matrix(runif(npc * pi), npc, pi)
+      return(Vi)
+    })
+    
+  }
+  
+  
   ### Clustering update
   cat(paste0("## running ", imp_iter, "th vars update via clustering and imputation...\n"))
-  clust_res = clustering_update(split_data, K, npc, lambda1, lambda2, W=W, V=V, Wv=Wv, 
-                                H=H, Dc=Dc, Dg = Dg, S=S, iteration=clust_iteration, meandrop=meandrop,
-                                out_file=paste0(output, "clust_res/localsim_integrated_clustres.rds"), 
-                                res_save=res_save)
+  clust_res = clustering_update(split_data, K, NN, H=H, S=S, Dc=Dc, iteration=clust_iteration, 
+                                out_file=paste0(output, "clust_res/localsim_integrated_clustres.rds"), res_save=res_save)
   #clust_res = clustering_update(imp_X, K, npc, lambda1, lambda2, W=W, V=V, H=H, Dc=Dc, L=L, iteration=clust_iteration,
   #                             out_file=paste0(output, "clust_res/localsim_integrated_clustres.rds"), res_save=res_save)
 
+  S = clust_res$S
+  Sv = clust_res$Sv
   H = clust_res$H
-  V = clust_res$V
-  W = clust_res$W
-  Wv = clust_res$Wv
-  dw = clust_res$dw
-  alpha = clust_res$alpha
   cluster = clust_res$cluster
+  Dc = clust_res$Dc
+  Dg = clust_res$Dg
+  weight = clust_res$wv
+  alpha = clust_res$alpha
+  J = clust_res$J
+  J_DC = clust_res$J_DC
+  J_FC = clust_res$J_FC
+  J_GE = clust_res$J_GE
+  J_GC = clust_res$J_GC
   nmi = clust_res$nmi
-  res_J = clust_res$J
-  lambda1 = clust_res$lambda1
-  lambda2 = clust_res$lambda2
-  J_DR = clust_res$J_DR
-  J_HE = clust_res$J_HE
-  J_LE = clust_res$J_LE
-  sigma = clust_res$sigma
+  ari = clust_res$ari
+  lambda = clust_res$par
   #neighbors = clust_res$neighbors
   
   cat("# MGGE iteration complete!\n")
   time = Sys.time() - s
   message("## Consume", time, "seconds.\n")
   
-  res = list(cluster=cluster, imp_X = imp_X, guide_cluster = guide_cluster, lambda1 = lambda1, lambda2 = lambda2,
-             droprate=droprate, J_DR = J_DR, J_HE = J_HE, J_LE = J_LE, J = res_J, nmi = nmi, sigma = sigma, beta = beta, 
-             W = W, V = V, Wv=Wv, H = H, Dc = Dc, Dg = Dg, drop_id = view_id, S = S, dw = dw, weight = alpha, time = time)  
+  #res = list(cluster=cluster, imp_X = imp_X, guide_cluster = guide_cluster, lambda1 = lambda1, lambda2 = lambda2,
+  #           droprate=droprate, J_DR = J_DR, J_MG = J_MG, J_HE = J_HE, J_LE = J_LE, J = res_J, nmi = nmi, sigma = sigma, beta = beta, 
+  #           W = W, V = V, Wv=Wv, H = H, Dc = Dc, Dg = Dg, drop_id = view_id, S = S, dw = dw, weight = alpha, time = time)  
+  res = list(S = S, Sv = Sv, H = H, cluster = cluster, Dc = Dc, Dg = Dg,
+             J = J, J_DC = J_DC, J_FC = J_FC, J_GE = J_GE, J_GC = J_GC, nmi = nmi, ari = ari, 
+             lambda = par, alpha = alpha, weight = weight, time = time)
 
   return(res)
 

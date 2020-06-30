@@ -4,12 +4,14 @@ setwd("E:/Project/Paper_debug/Clustering algorithm/DMMG/")
 source("npc_cal.R")
 #source("proj_sim.R")
 source("constructW.R")
-source("DMMG_update.R")
-#source("NormalizeUV.R")
+source("NormalizeUV.R")
 source("data_normalize.R")
+source("DMMG_update.R")
 source("imputing_update.R")
-source("clustering_update.R")
+source("clustering_update_Sv.R")
+#source("clustering_update.R")
 #source("construct_locsim.R")
+source("multiview_generation.R")
 #source("localsim_integrated_update.R")
 #source("informative_gene_selection.R")
 
@@ -18,9 +20,6 @@ library(purrr)
 library(Matrix)
 library(parallel)
 library(aricode)
-library(Seurat)
-library(R.matlab)
-library(ggplot2)
 
 
 # dataset info
@@ -28,9 +27,17 @@ datas = c("Biase/Biase.rds", "Deng_GSE45719/mouse_embryo.rds", "Zeisel/Zeisel.rd
           "mouse1/mouse1.rds", "mouse2/mouse2.rds", "human3/human3.rds", "Hrvatin/Hrvatin.rds",
           "human1/human1.rds", "human2/human2.rds", "human4/human4.rds")
 data_path = "E:/Project/dataset/Bioinformatics/scRNA/Selected data/"
-for(i in c(1,3:6)){
-  sigmac = 0.5
-  sigmag = 0.5
+for(i in c(2)){
+#for(lambda1 in c(0.5, 1, 10, 100)){
+#for(lambda2 in c(0.5, 1, 10, 100)){
+#for(sigma in c(0.5, 0, 1, 2)){
+#for(sigmag in c(
+  NN = 20    #! import for var dataset
+lambda1 = 2
+lambda2 = 2
+  sigma = 0.5
+  sigmac = sigma
+  sigmag = sigma
 
   try({
   X = readRDS(paste0(data_path, datas[i]))
@@ -47,8 +54,6 @@ for(i in c(1,3:6)){
   message("## Data nomalization and log-transformation...\n")
   lg_X = data_normalize(X, N, P, gt, mu_probs=0.5, cv_probs=0.2)   #* 0.2 by default with gene select  0.1*round(log10(N))
   gt = lg_X$gt
-
-  
   mu_g = lg_X$mu_g
   sd_g = lg_X$sd_g
   lg_X = as.matrix(lg_X$count_hv)
@@ -62,8 +67,9 @@ for(i in c(1,3:6)){
   
   #* construct W & neighbors
   # NN = 5 for 10^2, else 20 for 1o^3
-  res = constructW(lg_X, 10, K)
+  res = constructW(lg_X, NN, K)
   S = res$S
+  S[which(S == 0)] = 1e-10
   neighbors = res$neighbors
   rm(res)
   L = diag(colSums(S)) - S
@@ -114,8 +120,8 @@ for(i in c(1,3:6)){
   
   
   # main function
-  res <- var_update(lg_X, K, npc, S, neighbors, cluster, gt, mu_g, sd_g, sigmac=sigmac, sigmag=sigmag, lambda1=2, lambda2=2, 
-                    iteration=1, clust_iteration=200, imp_iteration=3000, 
+  res <- var_update(lg_X, K, npc, S, neighbors, cluster, gt, mu_g, sd_g, sigmac=sigmac, sigmag=sigmag, 
+                    lambda1=lambda1, lambda2=lambda2, iteration=1, clust_iteration=100, imp_iteration=3000, 
                     res_save=FALSE, data_name = strsplit(datas[i], split="/")[[1]][1])
   
   #clust = res$cluster
@@ -129,7 +135,11 @@ for(i in c(1,3:6)){
   # save res
   output = strsplit(datas[i], split="/")[[1]][1]
   
+  #saveRDS(res, paste0("result/pars/", output, 'lambda1_', lambda1, '_lambda2_', lambda2, '_sigma_', sigma, '.rds'))
   saveRDS(res, paste0("result/test/", output, '.rds'))
   })
+#}
+#}
+#}
 }
-
+#}
