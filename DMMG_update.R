@@ -3,7 +3,7 @@ library(Matrix)
 library(bignmf)
 
 
-var_update <- function(lg_X, K, npc, S, neighbors, guide_cluster, gt, mu_g, sd_g, rep=1, sigmac=0.5, sigmag=0.5, lambda1=0.1, lambda2=0.1, 
+var_update <- function(split_data, lg_X, droprate, view_id, K, gt, NN, rep=1, sigmac=0.5, sigmag=0.5, lambda1=1, lambda2=1,
                        thre_J=1e-4, drop_thre=0.5, iteration=1, 
                        clust_iteration=100, imp_iteration=100, 
                        output="result/", res_save=TRUE, data_name){
@@ -12,7 +12,8 @@ var_update <- function(lg_X, K, npc, S, neighbors, guide_cluster, gt, mu_g, sd_g
   N = dim(lg_X)[1]
   P = dim(lg_X)[2]
   
-  
+
+## filtered_data ver
   imp_iter = 1
   droprate = 0
   imp_X = 0
@@ -32,6 +33,7 @@ var_update <- function(lg_X, K, npc, S, neighbors, guide_cluster, gt, mu_g, sd_g
   #local_sim = imp_res$local_sim
   imp_X = imp_res$imp_X
   droprate = imp_res$droprate
+ 
   meandrop = apply(droprate, 2, mean)   # 0 - 0.9  gene meandrop
   meangene = apply(lg_X, 2, mean)
   
@@ -112,6 +114,7 @@ var_update <- function(lg_X, K, npc, S, neighbors, guide_cluster, gt, mu_g, sd_g
 }
     
   
+  
   # devide gene
   #* 8\ log_X or imp_X
   res = multiview_generation(lg_X, droprate, guide_cluster, sigmac, sigmag)
@@ -125,6 +128,11 @@ var_update <- function(lg_X, K, npc, S, neighbors, guide_cluster, gt, mu_g, sd_g
     return(res)
   })  
 
+  # filtered_data ver
+  res = constructW(lg_X, 20, K)
+  S = res$S
+  S[which(S == 0)] = 1e-10
+  
   
   # init vars
   set.seed(rep)   #*15\ produce reproductive result
@@ -133,7 +141,7 @@ var_update <- function(lg_X, K, npc, S, neighbors, guide_cluster, gt, mu_g, sd_g
   H = H[, (N-K):(N-1)]
   H[H<=0] = 1e-10
   
-  NN = N
+  NN = max(NN, 10)
   norm = rowSums(S)
   norm = matrix(norm, N, N)
   S = S / (norm + 1e-10)
@@ -158,7 +166,7 @@ var_update <- function(lg_X, K, npc, S, neighbors, guide_cluster, gt, mu_g, sd_g
   
   ### Clustering update
   cat(paste0("## running ", imp_iter, "th vars update via clustering and imputation...\n"))
-  clust_res = clustering_update(split_data, K, NN, H=H, S=S, Dc=Dc, iteration=clust_iteration, 
+  clust_res = clustering_update(split_data, K, NN, lambda1=lambda1, lambda2=lambda2, H=H, S=S, iteration=clust_iteration, 
                                 out_file=paste0(output, "clust_res/localsim_integrated_clustres.rds"), res_save=res_save)
   #clust_res = clustering_update(imp_X, K, npc, lambda1, lambda2, W=W, V=V, H=H, Dc=Dc, L=L, iteration=clust_iteration,
   #                             out_file=paste0(output, "clust_res/localsim_integrated_clustres.rds"), res_save=res_save)

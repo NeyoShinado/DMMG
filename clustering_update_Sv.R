@@ -1,4 +1,4 @@
-clustering_update <- function(X, K, NN, lambda=1, Sv=NULL, S=NULL, H=NULL, Dc=NULL, Dg=NULL, 
+clustering_update <- function(X, K, NN, lambda1=1, lambda2=1, Sv=NULL, S=NULL, H=NULL, Dc=NULL, Dg=NULL, 
                               iteration=50, meandrop=NULL, thre=1e-4, out_file="result/clust_res/res.rds", 
                               res_save=TRUE){
 ###* be careful of the diagonal of both S,Sv and dH of multiply opt
@@ -25,7 +25,7 @@ clustering_update <- function(X, K, NN, lambda=1, Sv=NULL, S=NULL, H=NULL, Dc=NU
     dv = rowSums(i^2)
     dv = matrix(dv, nrow=N, ncol=N)
     dv = dv + t(dv) - 2 * i %*% t(i)
-    dv = dv - diag(diag(dv))
+    dv[which(dv < 0)] = 1e-10
     return(dv)
   })
 
@@ -34,7 +34,7 @@ clustering_update <- function(X, K, NN, lambda=1, Sv=NULL, S=NULL, H=NULL, Dc=NU
     res = update_alpha(dx[[i]], wv[1, i], S, NN, init=TRUE)
     return(res)
   })
-  #####
+
   alphas = sapply(res, function(i){
     alpha = i$alpha
     return(alpha)
@@ -48,6 +48,7 @@ clustering_update <- function(X, K, NN, lambda=1, Sv=NULL, S=NULL, H=NULL, Dc=NU
     return(Sv)
   })
   rm(res)
+browser()
   
 ## optimize version 1 of matrix multiplication
   for(iter in 1:iteration){
@@ -57,41 +58,57 @@ clustering_update <- function(X, K, NN, lambda=1, Sv=NULL, S=NULL, H=NULL, Dc=NU
                100*signif(iter/iteration, digits=2), "%\n"))
     
     cat("### updating Sv...\n")
-    Sv = lapply(1:M, function(i){
-      res = Sv[[i]] * (2*wv[iter, i]*S) / (2*wv[iter, i]*Sv[[i]] + 2*alpha[iter, i]*Sv[[i]]+dx[[i]])
+    #Sv = lapply(1:M, function(i){
+    #  res = Sv[[i]] * (2*wv[iter, i]*S) / (2*wv[iter, i]*Sv[[i]] + 2*alpha[iter, i]*Sv[[i]]+dx[[i]]) + 1e-10
+    #  return(res)
+    #})
+    res = lapply(1:M, function(i){
+      res = update_alpha(dx[[i]], lambda1*wv[1, i], S, NN, init=TRUE)
       return(res)
     })
+    Sv = lapply(res, function(i){
+      Sv = i$Sv
+      return(Sv)
+    })
+    rm(res)
     
     #* 1\norm
-    Sv = lapply(Sv, function(i){
-      N = dim(i)[1]
-      norm =  rowSums(i)
-      norm = matrix(norm, N, N)
-      i = i / (norm + 1e-10)
-      i = (i + t(i)) / 2
-      #i = i - diag(diag(i)) + diag(1, N)
-      return(i)
-    })
-    
+    if(FALSE){
+      Sv = lapply(Sv, function(i){
+        N = dim(i)[1]
+        i = i - diag(diag(i))
+        norm =  rowSums(i)
+        norm = matrix(norm, N, N)
+        i = i / (norm + 1e-10)
+        i = (i + t(i)) / 2
+        i = i - diag(diag(i)) + diag(1, N)
+        return(i)
+      })
+    }
+
 
     cat("### updating S...\n")
     dH = rowSums(H^2)
     dH = matrix(dH, nrow=N, ncol=N)
     dH = dH + t(dH) - 2*H %*% t(H)
-    dH = dH - diag(diag(dH))
+    dH = dH - diag(diag(dH)) + diag(1, N) #* remove effect from self sim
     
     temp = lapply(1:M, function(i){
       res = wv[iter, i] * Sv[[i]]
       return(res)
     })
-    S = S * (2*Reduce(f="+", temp)) / (2*sum(wv[iter, ]) * S + lambda * dH)
+    S = S * (2 * lambda1 * Reduce(f="+", temp)) / (2 * lambda1 *sum(wv[iter, ]) * S + lambda2 * dH) + 1e-10
     
+
     #* 1\norm
-    norm = rowSums(S)
-    norm = matrix(norm, N, N)
-    S = S / (norm + 1e-10)
-    S = (S + t(S)) / 2
-    #S = S - diag(diag(S)) + diag(1, N)
+    if(FALSE){
+      S = S - diag(diag(S))
+      norm = rowSums(S)
+      norm = matrix(norm, N, N)
+      S = S / (norm + 1e-10)
+      S = (S + t(S)) / 2
+      S = S - diag(diag(S)) + diag(1, N)
+    }
     rm(dH, temp)
 
     
@@ -101,33 +118,40 @@ clustering_update <- function(X, K, NN, lambda=1, Sv=NULL, S=NULL, H=NULL, Dc=NU
       return(res)
     })
     
+    
     wv[iter, ] = sapply(1:M, function(i){
       res = 0.5 / sqrt(J_GE[iter, i])
       return(res)
     })
     
-    browser()
+    #* 2\ unization
+    #wv[iter, ] = wv[iter, ] / sum(wv[iter, ])
+    
+    
+    #* 3\ update alpha
     cat("### updating alpha...\n")#####
-    #alpha[iter, ] = sapply(1:M, function(i){
-    #  res = update_alpha(dx[[i]], wv[iter, i], S, NN)
-    #  return(res)
-    #})
+    alpha[iter, ] = sapply(1:M, function(i){
+      res = update_alpha(dx[[i]], wv[iter, i], S, NN)
+      return(res)
+    })
     
     
     cat('### updating H...\n')
-    D = diag(colSums(S))
-    H = H * (S %*% H) / (D %*% H)
-    
-    #* 5\ H unitize
-    norms = rowSums(H)    #* 5\row based H normalize
-    norms[norms == 0] = 1e-10
-    H = H / matrix(norms, N, K)
+    if(TRUE){
+      D = diag(colSums(S))
+      H = H * (S %*% H) / (D %*% H) + 1e-10
+      
+      #* 5\ H unitize
+      norms = rowSums(H)    #* 5\row based H normalize
+      norms[norms == 0] = 1e-10
+      H = H / matrix(norms, N, K)
+    }
+    #L = diag(colSums(S)) - S
+    #H = eigen(L)$vectors[, (N-K):(N-1)]
     
     
     #** 7\update parameters
-    if(iter>1){
-      par[iter] = lambda
-    }
+    par[iter] = lambda1
     
     
     # cost calculation
@@ -146,7 +170,7 @@ clustering_update <- function(X, K, NN, lambda=1, Sv=NULL, S=NULL, H=NULL, Dc=NU
       return(res)
     })
     J_GC[iter] = sum(diag(t(H) %*% S %*% H))
-    J[iter] = sum(J_DE[iter, ]) + sum(J_FC[iter, ]) + sum(J_GE[iter, ]) + lambda * J_GC[iter]
+    J[iter] = sum(J_DE[iter, ]) + sum(J_FC[iter, ]) + lambda1 * sum(J_GE[iter, ]) + lambda2 * J_GC[iter]
     cat("### Current cost:", J[iter], "\n")
     
     
@@ -214,6 +238,7 @@ clustering_update <- function(X, K, NN, lambda=1, Sv=NULL, S=NULL, H=NULL, Dc=NU
     saveRDS(res, out_file)
   }
 
+  browser()
   return(res)
 }
 
@@ -227,12 +252,12 @@ update_alpha <- function(dx, w, S, NN, init=FALSE){
     res = order(i, decreasing=FALSE)
     return(res)
   }))
+  
   dist = t(apply(dist, 1, function(i){
     res = sort(i, decreasing=FALSE)
     return(res)
   }))
-  
-  
+ 
   alphas = sapply(1:N, function(i){
     di = dist[i,2:(NN+2)]
     res = 0.5*(NN*di[NN+1]-sum(di[1:NN])) - w
@@ -242,7 +267,7 @@ update_alpha <- function(dx, w, S, NN, init=FALSE){
   alpha = mean(alphas)
   
   if(init){
-    # initialize S
+    # generate S with rowsum approaching to 1
     Sv = t(sapply(1:N, function(i){
       res = matrix(1e-10, 1, N)
       di = dist[i,2:(NN+2)]

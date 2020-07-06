@@ -3,6 +3,7 @@ constructW <- function(X, NN, K){
   X = as.matrix(X)
   N = dim(X)[1]
   P = dim(X)[2]
+  NN = min(NN, dim(X)[1])
   
   ## LPI algorithm chose npc
   if(min(N, P) <= 300){

@@ -23,40 +23,52 @@ library(aricode)
 
 
 # dataset info
-datas = c("Biase/Biase.rds", "Deng_GSE45719/mouse_embryo.rds", "Zeisel/Zeisel.rds", 
-          "mouse1/mouse1.rds", "mouse2/mouse2.rds", "human3/human3.rds", "Hrvatin/Hrvatin.rds",
-          "human1/human1.rds", "human2/human2.rds", "human4/human4.rds")
-data_path = "E:/Project/dataset/Bioinformatics/scRNA/Selected data/"
+#datas = c("Biase/Biase.rds", "Deng_GSE45719/mouse_embryo.rds", "Zeisel/Zeisel.rds", 
+#          "mouse1/mouse1.rds", "mouse2/mouse2.rds", "human3/human3.rds", "Hrvatin/Hrvatin.rds",
+#          "human1/human1.rds", "human2/human2.rds", "human4/human4.rds")
+#data_path = "E:/Project/dataset/Bioinformatics/scRNA/Selected data/"
+datas = c("sce_filteredHVG10_Koh.rds", "sce_filteredHVG10_KohTCC.rds", "sce_filteredHVG10_SimKumar8hard.rds",
+          "sce_filteredHVG10_Zhengmix4eq.rds", "sce_filteredHVG10_Zhengmix4uneq.rds", "sce_filteredHVG10_Zhengmix8eq.rds")
+data_path = "E:/Project/dataset/Bioinformatics/scRNA/DuoClustering2018/sce_filteredHVG10/"
+
 for(i in c(2)){
+  for(NN in c(20)){
 #for(lambda1 in c(0.5, 1, 10, 100)){
 #for(lambda2 in c(0.5, 1, 10, 100)){
 #for(sigma in c(0.5, 0, 1, 2)){
 #for(sigmag in c(
-  NN = 20    #! import for var dataset
-lambda1 = 2
-lambda2 = 2
+  lambda = 1
+  lambda2 = 1
   sigma = 0.5
   sigmac = sigma
   sigmag = sigma
 
-  try({
+  #try({
+
+## filtered_data ver      
   X = readRDS(paste0(data_path, datas[i]))
-  gt = X$gt
-  X = X$expr     # for Baron dataset
+  # for Duoclustering 2018
+  gt = X@colData$phenoid
+  X = t(X@assays$data$counts)
+  # for select dataset
+  #gt = X$gt
+  #X = X$expr     
+  # for Baron dataset
   #gt = X$cluster
   #X = t(X@assays@data$rawcounts)
   N = nrow(X)
   P = ncol(X)
-  message(paste0("## Loading raw data of ",N , "*", P, " and labels...\n"))
+  message(paste0("## Loading raw data of ",N , "*", P, " and sample labels...\n"))
   
   
   ## gene filter & normalization
   message("## Data nomalization and log-transformation...\n")
-  lg_X = data_normalize(X, N, P, gt, mu_probs=0.5, cv_probs=0.2)   #* 0.2 by default with gene select  0.1*round(log10(N))
-  gt = lg_X$gt
-  mu_g = lg_X$mu_g
-  sd_g = lg_X$sd_g
-  lg_X = as.matrix(lg_X$count_hv)
+  lg_X = log10(X + 1)
+  #lg_X = data_normalize(X, N, P, gt, mu_probs=0.5, cv_probs=0.2)   #* 0.2 by default with gene select  0.1*round(log10(N))
+  #gt = lg_X$gt
+  #mu_g = lg_X$mu_g
+  #sd_g = lg_X$sd_g
+  #lg_X = as.matrix(lg_X$count_hv)
   
   
   ##* cluster number estimation
@@ -67,7 +79,7 @@ lambda2 = 2
   
   #* construct W & neighbors
   # NN = 5 for 10^2, else 20 for 1o^3
-  res = constructW(lg_X, NN, K)
+  res = constructW(lg_X, 20, K)
   S = res$S
   S[which(S == 0)] = 1e-10
   neighbors = res$neighbors
@@ -106,23 +118,42 @@ lambda2 = 2
   }
   
   
-  
   ## dimension reduction(npc) calculation
   npc = npc_cal(as.matrix(lg_X), K, var_thre=0.8)
   message("## Caluculated dim reduction npc:", npc, "\n")
   
+
+  
+  ## filtered_data ver
+  if(FALSE){
+    X = readRDS(paste0(data_path, datas[i]))
+    split_data = X$split_data
+    view_id = X$view_id
+    imp_X = X$imp_X
+    lg_X = X$lg_X
+    droprate = X$droprate
+    view_id = X$view_id
+    gt = X$gt
+  }
+  
   
   ## cluster update
-  # clustering update, 200 iteration by default
-  #* stop update when Jbefore < Jafter
   files = list.files("./scImpute/", pattern="*.R")
   sapply(paste0("./scImpute/", files), source)
   
   
   # main function
-  res <- var_update(lg_X, K, npc, S, neighbors, cluster, gt, mu_g, sd_g, sigmac=sigmac, sigmag=sigmag, 
-                    lambda1=lambda1, lambda2=lambda2, iteration=1, clust_iteration=100, imp_iteration=3000, 
-                    res_save=FALSE, data_name = strsplit(datas[i], split="/")[[1]][1])
+  #res <- var_update(lg_X, K, npc, S, neighbors, cluster, gt, mu_g, sd_g, sigmac=sigmac, sigmag=sigmag, 
+  #                  lambda1=lambda1, lambda2=lambda2, iteration=1, clust_iteration=100, imp_iteration=3000, 
+  #                  res_save=FALSE, data_name = strsplit(datas[i], split="/")[[1]][1])
+
+  # filtered_data
+  N = dim(lg_X)[1]
+  NN = round(N / NN)
+  K = length(unique(gt))
+  res <- var_update(split_data, lg_X, droprate, view_id, K, gt, NN, sigmac=sigmac, sigmag=sigmag, 
+                                      lambda1=lambda1, lambda2=lambda2, iteration=1, clust_iteration=50, imp_iteration=3000, 
+                                      res_save=FALSE, data_name = strsplit(datas[i], split="/")[[1]][1])
   
   #clust = res$cluster
   #nmi = NMI(clust, gt)
@@ -133,12 +164,13 @@ lambda2 = 2
   
   
   # save res
-  output = strsplit(datas[i], split="/")[[1]][1]
+  #output = strsplit(datas[i], split="/")[[1]][1]
+  output = strsplit(datas[i], split="\\.")[[1]][1]
   
   #saveRDS(res, paste0("result/pars/", output, 'lambda1_', lambda1, '_lambda2_', lambda2, '_sigma_', sigma, '.rds'))
-  saveRDS(res, paste0("result/test/", output, '.rds'))
-  })
-#}
+  saveRDS(res, paste0("result/", output, '.rds'))
+  #})
+}
 #}
 #}
 }
